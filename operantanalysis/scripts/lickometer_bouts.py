@@ -65,7 +65,7 @@ for colname, col in df.iteritems():
 df2.columns = df.columns
 df3.columns = df.columns
 df4means.columns = df.columns
-df2.to_excel("boutlength.xlsx")
-df3.to_excel("lickrate.xlsx")
-df4means.to_excel("summarydata.xlsx")
+df2.to_csv("boutlength.csv")
+df3.to_csv("lickrate.csv")
+df4means.to_csv("summarydata.csv")
 

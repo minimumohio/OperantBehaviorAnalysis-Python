@@ -5,15 +5,41 @@ from tkinter import filedialog
 from tkinter import *  # noqa
 import pandas as pd
 from .eventcodes import eventcodes_dictionary
+from natsort import natsorted, ns
 
-__all__ = ["loop_over_days", "load_file", "extract_info_from_file", "DNAMIC_extract_info_from_file",
-           "DNAMIC_loop_over_days", "get_events_indices", "reward_retrieval", "cue_iti_responding", "binned_responding",
-           "cue_responding_duration", "lever_pressing", "lever_press_latency", "total_head_pokes",
+__all__ = ["loop_over_days", "load_file", "concat_lickometer_files",
+           "extract_info_from_file", "DNAMIC_extract_info_from_file",
+           "DNAMIC_loop_over_days", "get_events_indices", "reward_retrieval", "cue_iti_responding",
+           "cue_iti_responding_PavCA", "binned_responding",
+           "cue_responding_duration", "lever_pressing", "lever_press_latency", "lever_press_latency_PavCA",
+           "total_head_pokes",
            "num_successful_go_nogo_trials", "count_go_nogo_trials", "num_switch_trials", "bin_by_time",
-           "lever_press_lat_gng", "RVI_gng_weird", "RVI_nogo_latency"]
+           "lever_press_lat_gng", "RVI_gng_weird", "RVI_nogo_latency", "lever_press_latency_Switch"]
 
 
 def loop_over_days(column_list, behavioral_test_function):
+    """
+    :param column_list: list of strings/column titles for analysis that will be output in a table
+    :param behavioral_test_function: function that contains all the analysis functions to run on each file
+    :return: one concatenated data table of analysis for each animal for each day specified
+    """
+    days = int(input("How many days would you like to analyze?"))
+    df = pd.DataFrame(columns=column_list)
+
+    for i in range(days):
+        root = Tk()  # noqa
+        root.withdraw()
+        folder_selected = filedialog.askdirectory()
+        file_pattern = os.path.join(folder_selected, '*')
+        for file in sorted(glob.glob(file_pattern)):
+            loaded_file = load_file(file)
+            df2 = behavioral_test_function(loaded_file, i)
+            df = df.append(df2, ignore_index=True)
+
+    return days, df
+
+
+def loop_over_days_lickometer(column_list, behavioral_test_function):
     """
     :param column_list: list of strings/column titles for analysis that will be output in a table
     :param behavioral_test_function: function that contains all the analysis functions to run on each file
@@ -64,6 +90,45 @@ def load_file(filename):
             fields_dictionary[next_group[0]] = next_group[1]
 
     return fields_dictionary
+
+
+def concat_lickometer_files():
+    """
+    :return: data frame for lickometer analysis
+    """
+
+    files_list = []
+    root = Tk();
+    root.withdraw()
+
+    home = os.path.expanduser('~')  # returns the home directory on any OS --> ex) /Users/jhl
+    selected_folder = filedialog.askdirectory(initialdir = home)
+    file_pattern = os.path.join(selected_folder, '*.txt')
+    data_dict = {}
+    for fname in natsorted(glob.glob(file_pattern), alg=ns.IGNORECASE):  # loop through all the txt files
+        with open(fname, "r") as file:
+            filelines = file.readlines()  # read the lines in each file
+            subject_line = filelines[5]  # Animal ID will always be at the 6th index (5+1)
+            subject = subject_line.split(",")[-1].strip()  # subject will be the last element, strip any whitespaces!
+            values = filelines[-1].strip().split(",")  # Need to split by delimiter in order to make the list!
+            data_dict[subject] = values
+    lick_df = pd.DataFrame.from_dict(data_dict, orient='index')
+    lick_final = lick_df.T
+
+    # Delete row at index position 0 & 1
+    lick_final = lick_final.drop([lick_final.index[0]])  # to get rid of row of ones at top
+    lick_final.reset_index(inplace=True)
+
+    for c in lick_final.columns:
+        lick_final[c] = pd.to_numeric(lick_final[c], errors='coerce')
+
+    lick_final = lick_final.drop(lick_final.columns[[0]], axis=1)
+    lick_final.fillna(value=pd.np.nan, inplace=True)
+
+    lick_final.rename(columns=lick_final.iloc[0]).drop(lick_final.index[0])
+    lick_final.to_excel("output.xlsx")
+
+    return lick_final
 
 
 def extract_info_from_file(dictionary_from_file, time_conversion):
@@ -192,6 +257,8 @@ def cue_iti_responding(timecode, eventcode, code_on, code_off, counted_behavior)
     """
     cue_on = get_events_indices(eventcode, [code_on])
     cue_off = get_events_indices(eventcode, [code_off])
+    if len(cue_on) != len(cue_off):
+        cue_off += get_events_indices(eventcode, ['EndSession'])
     iti_on = get_events_indices(eventcode, [code_off, 'StartSession'])
     all_poke_rpm = []
     all_poke_iti_rpm = []
@@ -201,16 +268,62 @@ def cue_iti_responding(timecode, eventcode, code_on, code_off, counted_behavior)
         cue_off_idx = cue_off[i]
         iti_on_idx = iti_on[i]
         cue_length_sec = (timecode[cue_off_idx] - timecode[cue_on_idx])
-        poke_rpm = ((eventcode[cue_on_idx:cue_off_idx].count(counted_behavior)) / (cue_length_sec / 60))
+        if cue_length_sec > 0:
+            poke_rpm = ((eventcode[cue_on_idx:cue_off_idx].count(counted_behavior)) / (cue_length_sec / 60))
+        else:
+            poke_rpm = 0
         all_poke_rpm += [poke_rpm]
         iti_poke = 0
         for x in range(iti_on_idx, cue_on_idx):
             if eventcode[x] == counted_behavior and timecode[x] >= (timecode[cue_on_idx] - cue_length_sec):
                 iti_poke += 1
-        iti_poke_rpm = iti_poke / (cue_length_sec / 60)
+        if cue_length_sec > 0:
+            iti_poke_rpm = iti_poke / (cue_length_sec / 60)
+        else:
+            iti_poke_rpm = 0
         all_poke_iti_rpm += [iti_poke_rpm]
 
     return round(statistics.mean(all_poke_rpm), 3), round(statistics.mean(all_poke_iti_rpm), 3)
+
+
+def cue_iti_responding_PavCA(timecode, eventcode, code_on, code_off, counted_behavior):
+    """
+    :param timecode: list of time codes from operant conditioning file
+    :param eventcode: list of event codes from operant conditioning file
+    :param code_on: event code for the beginning of a cue
+    :param code_off: event code for the end of a cue
+    :param counted_behavior: event code for counted behavior
+    :return: mean rpm of head pokes during cue and mean rpm of head pokes during equivalent ITI preceding cue
+    """
+    cue_on = get_events_indices(eventcode, [code_on])
+    cue_off = get_events_indices(eventcode, [code_off])
+    if len(cue_on) != len(cue_off):
+        cue_off += get_events_indices(eventcode, ['EndSession'])
+    iti_on = get_events_indices(eventcode, [code_off, 'StartSession'])
+    all_poke_rpm = []
+    all_poke_iti_rpm = []
+
+    for i in range(len(cue_on)):
+        cue_on_idx = cue_on[i]
+        cue_off_idx = cue_off[i]
+        iti_on_idx = iti_on[i]
+        cue_length_sec = (timecode[cue_off_idx] - timecode[cue_on_idx])
+        if cue_length_sec > 0:
+            poke_rpm = ((eventcode[cue_on_idx:cue_off_idx].count(counted_behavior)) / (cue_length_sec / 60))
+        else:
+            poke_rpm = 0
+        all_poke_rpm += [poke_rpm]
+        iti_poke = 0
+        for x in range(iti_on_idx, cue_on_idx):
+            if eventcode[x] == counted_behavior and timecode[x] >= (timecode[cue_on_idx] - cue_length_sec):
+                iti_poke += 1
+        if cue_length_sec > 0:
+            iti_poke_rpm = iti_poke / (cue_length_sec / 60)
+        else:
+            iti_poke_rpm = 0
+        all_poke_iti_rpm += [iti_poke_rpm]
+
+    return round(statistics.mean(all_poke_rpm), 3), round(statistics.mean(all_poke_iti_rpm), 3), len([j for j in all_poke_rpm if j > 0])
 
 
 def binned_responding(timecode, eventcode, code_on, code_off, counted_behavior, trial_count):
@@ -258,6 +371,8 @@ def cue_responding_duration(timecode, eventcode, code_on, code_off, counted_beha
     """
     cue_on = get_events_indices(eventcode, [code_on])
     cue_off = get_events_indices(eventcode, [code_off])
+    if len(cue_on) != len(cue_off):
+        cue_off += get_events_indices(eventcode, ['EndSession'])
     iti_on = get_events_indices(eventcode, [code_off, 'StartSession'])
     all_poke_dur = []
     all_iti_poke_dur = []
@@ -353,6 +468,34 @@ def lever_press_latency(timecode, eventcode, lever_on, lever_press):
             press_latency += [round(timecode[lever_on_idx + lever_press_idx] - timecode[lever_on_idx], 2)]
         else:
             pass
+
+    if len(press_latency) > 0:
+        return round(statistics.mean(press_latency), 3)
+    else:
+        return 0
+
+
+def lever_press_latency_PavCA(timecode, eventcode, lever_on, lever_press, pres_len):
+    """
+    :param timecode: list of times (in seconds) when events occurred
+    :param eventcode: list of events that happened in a session
+    :param lever_on: event name for lever presentation
+    :param lever_press: event name for lever press
+    :return: the mean latency to press the lever in seconds
+    """
+    lever_on = get_events_indices(eventcode, [lever_on, 'EndSession'])
+    press_latency = []
+
+    for i in range(len(lever_on) - 1):
+        lever_on_idx = lever_on[i]
+        if lever_press in eventcode[lever_on_idx:lever_on[i + 1]]:
+            lever_press_idx = eventcode[lever_on_idx:lever_on[i + 1]].index(lever_press)
+            if round(timecode[lever_on_idx + lever_press_idx] - timecode[lever_on_idx], 2) <= pres_len:
+                press_latency += [round(timecode[lever_on_idx + lever_press_idx] - timecode[lever_on_idx], 2)]
+            else:
+                press_latency += [10]
+        else:
+            press_latency += [10]
 
     if len(press_latency) > 0:
         return round(statistics.mean(press_latency), 3)
@@ -511,6 +654,34 @@ def RVI_nogo_latency(timecode, eventcode, lever_on):
                 press_latency += [round(timecode[lever_on_idx + lever_press_idx] - timecode[lever_on_idx], 2)]
         else:
             pass
+
+    if len(press_latency) > 0:
+        return round(statistics.mean(press_latency), 3)
+    else:
+        return 0
+
+def lever_press_latency_Switch(timecode, eventcode):
+    """
+    :param timecode: list of times (in seconds) when events occurred
+    :param eventcode: list of events that happened in a session
+    :param lever_on: event name for lever presentation
+    :param lever_press: event name for lever press
+    :return: the mean latency to press the lever in seconds
+    """
+    lever_on = get_events_indices(eventcode, ['LLeverOn', 'RLeverOn', 'EndSession'])
+    press_latency = []
+
+    for i in range(len(lever_on) - 1):
+        lever_on_idx = lever_on[i]
+        if len(press_latency) < 10:
+            if 'LPressOn' in eventcode[lever_on_idx:lever_on[i + 1]]:
+                lever_press_idx = eventcode[lever_on_idx:lever_on[i + 1]].index('LPressOn')
+                press_latency += [round(timecode[lever_on_idx + lever_press_idx] - timecode[lever_on_idx], 2)]
+            elif 'RPressOn' in eventcode[lever_on_idx:lever_on[i + 1]]:
+                lever_press_idx = eventcode[lever_on_idx:lever_on[i + 1]].index('RPressOn')
+                press_latency += [round(timecode[lever_on_idx + lever_press_idx] - timecode[lever_on_idx], 2)]
+            else:
+                pass
 
     if len(press_latency) > 0:
         return round(statistics.mean(press_latency), 3)
