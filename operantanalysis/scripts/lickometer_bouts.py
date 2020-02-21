@@ -63,20 +63,20 @@ for i in range(days):
         dftempmeans = pd.DataFrame(np.array([np.count_nonzero(~np.isnan(col)), len(rate_list), mean_bout_l, mean_rate, lick_rate_2min]))
         df4means = pd.concat([df4means, dftempmeans], ignore_index=True, axis=1)
 
-<<<<<<< HEAD
+
 df2.columns = df.columns
 df3.columns = df.columns
 df4means.columns = df.columns
+
 df2.to_csv("boutlength.csv")
 df3.to_csv("lickrate.csv")
 df4means.to_csv("summarydata.csv")
-=======
-    df2.columns = lick_df.columns
-    df3.columns = lick_df.columns
-    df4means.columns = lick_df.columns
-    df4means = df4means.transpose()
-    df4means.columns = ['Total Licks', 'Total Bouts', 'Bout Length', 'Lick Rate', 'Lick Rate 2 min']
-    df = df.append(df4means)
->>>>>>> 42bf90968c5705cc59953c45e9ebc099df898a77
+df2.columns = lick_df.columns
+df3.columns = lick_df.columns
+df4means.columns = lick_df.columns
+df4means = df4means.transpose()
+df4means.columns = ['Total Licks', 'Total Bouts', 'Bout Length', 'Lick Rate', 'Lick Rate 2 min']
+df = df.append(df4means)
+
 
 df.to_excel("summarydata.xlsx")
